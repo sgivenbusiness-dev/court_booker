@@ -1,1 +1,13 @@
-[]
+[
+    {
+        "user": {
+            "first_name": "Liam",
+            "last_name": "Edwards",
+            "club_number": 1004,
+            "user_type": "member"
+        },
+        "court": 3,
+        "start_datetime": "2020-02-02 10:00",
+        "duration": 30
+    }
+]
