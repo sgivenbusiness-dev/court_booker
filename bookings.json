@@ -8,6 +8,21 @@
         },
         "court": 3,
         "start_datetime": "2020-02-02 10:00",
-        "duration": 30
+        "duration": 30,
+        "id": "legacy-0"
+    },
+    {
+        "id": "4022df5f-2308-4070-8fe4-ab6678b3f5e7",
+        "user": {
+            "first_name": "Sean",
+            "last_name": "Given",
+            "club_number": 0,
+            "user_type": "employee"
+        },
+        "court": 0,
+        "start_datetime": "2026-08-04 11:30",
+        "duration": 90,
+        "created_by": 0,
+        "created_by_role": "employee"
     }
 ]

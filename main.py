@@ -1,143 +1,322 @@
-from users import members, pros
-from courts import courts
 import json
-from datetime import datetime, timedelta
+import os
+from functools import wraps
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
+
+from flask import Flask, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash
+
+from courts import courts
+from users import members, pros
 
 
-BOOKINGS_FILE = "bookings.json"
+BASE_DIR = Path(__file__).resolve().parent
+BOOKINGS_FILE = BASE_DIR / "bookings.json"
+CREDENTIALS_FILE = BASE_DIR / "data" / "credentials.json"
+OPEN_MINUTES = 8 * 60
+CLOSE_MINUTES = 20 * 60
+ALLOWED_DURATIONS = (30, 60, 90, 120)
+DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 
-open_time = 8 * 60
-close_time = 20 * 60
-allowed_durations = [30, 60, 90, 120]
+app = Flask(__name__)
+app.secret_key = os.environ.get("COURT_BOOKER_SECRET", "court-booker-development-key")
 
 
 def find_user_by_club_number(club_number):
-    all_users = pros + members
+    return next(
+        (user for user in pros + members if user["club_number"] == club_number),
+        None,
+    )
 
-    for user in all_users:
-        if user["club_number"] == club_number:
-            return user
 
-    return None
+def is_pro(user):
+    return bool(user and user.get("club_number", 1000) < 1000)
 
 
 def load_bookings():
     try:
-        with open(BOOKINGS_FILE, "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
+        with BOOKINGS_FILE.open("r", encoding="utf-8") as file:
+            bookings = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
         return []
+
+    for index, booking in enumerate(bookings):
+        booking.setdefault("id", f"legacy-{index}")
+    return bookings
 
 
 def save_bookings(bookings):
-    with open(BOOKINGS_FILE, "w") as file:
+    with BOOKINGS_FILE.open("w", encoding="utf-8") as file:
         json.dump(bookings, file, indent=4)
 
 
-def remove_conflicting_bookings(new_booking, bookings):
-    updated_bookings = []
-    removed_bookings = []
-
-    for existing_booking in bookings:
-        same_court = existing_booking["court"] == new_booking["court"]
-        overlapping = bookings_overlap(new_booking, existing_booking)
-
-        if same_court and overlapping:
-            removed_bookings.append(existing_booking)
-        else:
-            updated_bookings.append(existing_booking)
-
-    return updated_bookings, removed_bookings
-
-
-def is_valid_duration(duration):
-    return duration in allowed_durations
-
-
-def is_within_club_hours(start_datetime, duration):
-    end_datetime = start_datetime + timedelta(minutes=duration)
-
-    opening_datetime = start_datetime.replace(hour=8, minute=0, second=0, microsecond=0)
-    closing_datetime = start_datetime.replace(hour=20, minute=0, second=0, microsecond=0)
-
-    
-    if start_datetime < opening_datetime:
-        return False
-
-    if end_datetime > closing_datetime:
-        return False
-
-    return True
+def booking_start(booking):
+    return datetime.strptime(booking["start_datetime"], DATETIME_FORMAT)
 
 
 def bookings_overlap(new_booking, existing_booking):
-    new_start = datetime.strptime(new_booking["start_datetime"], "%Y-%m-%d %H:%M")
-    new_end = new_start + timedelta(minutes=new_booking["duration"])
-
-    existing_start = datetime.strptime(existing_booking["start_datetime"], "%Y-%m-%d %H:%M")
-    existing_end = existing_start + timedelta(minutes=existing_booking["duration"])
-
+    new_start = booking_start(new_booking)
+    new_end = new_start + timedelta(minutes=int(new_booking["duration"]))
+    existing_start = booking_start(existing_booking)
+    existing_end = existing_start + timedelta(minutes=int(existing_booking["duration"]))
     return new_start < existing_end and new_end > existing_start
 
 
-def has_booking_conflict(new_booking, bookings):
-    for existing_booking in bookings:
-
-        # Only check conflicts for the same court
-        if existing_booking["court"] == new_booking["court"]:
-            if bookings_overlap(new_booking, existing_booking):
-                return True
-
-    return False
+def conflicting_bookings(new_booking, bookings):
+    return [
+        booking
+        for booking in bookings
+        if int(booking["court"]) == int(new_booking["court"])
+        and bookings_overlap(new_booking, booking)
+    ]
 
 
-bookings = load_bookings()
-
-club_number = int(input("Enter club number: "))
-current_user = find_user_by_club_number(club_number)
-
-def is_pro(user):
-    return user["club_number"] < 1000
-
-if current_user is None:
-    print("User not found.")
-else:
-    print(f"Logged in as {current_user['first_name']} {current_user['last_name']}")
+def is_within_club_hours(start_datetime, duration):
+    start_minutes = start_datetime.hour * 60 + start_datetime.minute
+    return (
+        start_datetime.minute in (0, 30)
+        and start_minutes >= OPEN_MINUTES
+        and start_minutes + duration <= CLOSE_MINUTES
+    )
 
 
-    court = int(input("Court number: "))
+def current_user():
+    club_number = session.get("club_number")
+    if club_number is None:
+        return None
+    return find_user_by_club_number(int(club_number))
 
-    date_input = input("Reservation date (YYYY-MM-DD): ")
-    time_input = input("Start time (HH:MM): ")
 
-    start_datetime = datetime.strptime(
-        date_input + " " + time_input,
-        "%Y-%m-%d %H:%M"
-)
-    duration = int(input("Duration: "))
-    end_datetime = start_datetime + timedelta(minutes=duration)
+def load_credentials():
+    try:
+        with CREDENTIALS_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Credentials are missing. Run: python scripts/generate_credentials.py"
+        ) from error
 
-    new_reservation = {
-    "user": current_user,
-    "court": court,
-    "start_datetime": start_datetime.strftime("%Y-%m-%d %H:%M"),
-    "duration": duration,
-}
 
-if not is_valid_duration(duration):
-    print("Invalid duration.")
+def login_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if current_user() is None:
+            flash("Please sign in to view the court schedule.", "error")
+            return redirect(url_for("login", next=request.full_path.rstrip("?")))
+        return view(*args, **kwargs)
 
-elif not is_within_club_hours(start_datetime, duration):
-    print("Reservation must be between 8:00 AM and 8:00 PM.")
+    return wrapped_view
 
-elif has_booking_conflict(new_reservation, bookings) and not is_pro(current_user):
-    print("Booking conflict. This court is already reserved at that time.")
 
-else:
-    if has_booking_conflict(new_reservation, bookings) and is_pro(current_user):
-        bookings, removed_bookings = remove_conflicting_bookings(new_reservation, bookings)
-        print(f"Removed {len(removed_bookings)} conflicting booking(s).")
+def surface_courts(surface):
+    return [
+        {**court, "id": index}
+        for index, court in enumerate(courts)
+        if court["surface"] == surface
+    ]
 
-    bookings.append(new_reservation)
+
+def calendar_url(surface, selected_date):
+    return url_for("calendar", surface=surface, date=selected_date.isoformat())
+
+
+@app.context_processor
+def inject_globals():
+    user = current_user()
+    return {
+        "current_user": user,
+        "current_user_is_pro": is_pro(user),
+    }
+
+
+@app.get("/")
+def index():
+    if current_user() is None:
+        return redirect(url_for("login"))
+    return redirect(url_for("calendar", surface="hard"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        if current_user() is not None:
+            return redirect(url_for("index"))
+        return render_template("login.html")
+
+    username = request.form.get("username", "").strip().lower()
+    password = request.form.get("password", "")
+    credential = load_credentials().get(username)
+    if not credential or not check_password_hash(credential["password_hash"], password):
+        flash("Incorrect username or password.", "error")
+        return render_template("login.html", username=username), 401
+
+    user = find_user_by_club_number(int(credential["club_number"]))
+    if user is None:
+        flash("This account is no longer active.", "error")
+        return render_template("login.html", username=username), 401
+
+    session.clear()
+    session["club_number"] = user["club_number"]
+    next_url = request.args.get("next", "")
+    flash(f"Welcome, {user['first_name']}.", "success")
+    return redirect(next_url if next_url.startswith("/") and not next_url.startswith("//") else url_for("index"))
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    flash("You have been signed out.", "success")
+    return redirect(url_for("login"))
+
+
+@app.get("/calendar/<surface>")
+@login_required
+def calendar(surface):
+    if surface not in {"hard", "clay"}:
+        return redirect(url_for("calendar", surface="hard"))
+
+    try:
+        selected_date = date.fromisoformat(request.args.get("date", date.today().isoformat()))
+    except ValueError:
+        flash("That date is invalid; showing today instead.", "error")
+        selected_date = date.today()
+
+    visible_courts = surface_courts(surface)
+    court_ids = {court["id"] for court in visible_courts}
+    day_bookings = []
+    for booking in load_bookings():
+        start = booking_start(booking)
+        if start.date() != selected_date or int(booking["court"]) not in court_ids:
+            continue
+        user = booking.get("user", {})
+        duration = int(booking["duration"])
+        day_bookings.append(
+            {
+                **booking,
+                "court": int(booking["court"]),
+                "start": start,
+                "start_label": start.strftime("%-I:%M %p") if os.name != "nt" else start.strftime("%I:%M %p").lstrip("0"),
+                "end_label": (start + timedelta(minutes=duration)).strftime("%I:%M %p").lstrip("0"),
+                "rowspan": duration // 30,
+                "name": f'{user.get("first_name", "Unknown")} {user.get("last_name", "member")}',
+                "is_own": user.get("club_number") == current_user()["club_number"],
+                "is_pro_booking": booking.get("created_by_role") == "employee"
+                or user.get("user_type") == "employee",
+                "is_override": bool(booking.get("override")),
+            }
+        )
+
+    bookings_by_start = {
+        (booking["court"], booking["start"].strftime("%H:%M")): booking
+        for booking in day_bookings
+    }
+    covered = set()
+    for booking in day_bookings:
+        for offset in range(1, booking["rowspan"]):
+            covered_time = booking["start"] + timedelta(minutes=30 * offset)
+            covered.add((booking["court"], covered_time.strftime("%H:%M")))
+
+    slots = []
+    for minutes in range(OPEN_MINUTES, CLOSE_MINUTES, 30):
+        slot_time = datetime.combine(selected_date, datetime.min.time()) + timedelta(minutes=minutes)
+        slots.append(
+            {
+                "value": slot_time.strftime("%H:%M"),
+                "label": slot_time.strftime("%I:%M %p").lstrip("0"),
+                "is_past": slot_time < datetime.now(),
+            }
+        )
+
+    return render_template(
+        "calendar.html",
+        surface=surface,
+        surface_title=surface.title(),
+        courts=visible_courts,
+        slots=slots,
+        selected_date=selected_date,
+        selected_date_label=selected_date.strftime("%A, %B %d, %Y").replace(" 0", " "),
+        previous_date=selected_date - timedelta(days=1),
+        next_date=selected_date + timedelta(days=1),
+        bookings_by_start=bookings_by_start,
+        covered=covered,
+        return_url=request.full_path.rstrip("?"),
+    )
+
+
+@app.post("/bookings")
+@login_required
+def create_booking():
+    return_surface = request.form.get("surface", "hard")
+    return_date_text = request.form.get("return_date", date.today().isoformat())
+    try:
+        court_id = int(request.form["court"])
+        duration = int(request.form["duration"])
+        start = datetime.strptime(
+            f'{request.form["date"]} {request.form["start_time"]}', DATETIME_FORMAT
+        )
+    except (KeyError, TypeError, ValueError):
+        flash("The selected court time is invalid.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
+    if court_id not in range(len(courts)):
+        flash("That court does not exist.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    if duration not in ALLOWED_DURATIONS:
+        flash("Bookings must be 30, 60, 90, or 120 minutes.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    if not is_within_club_hours(start, duration):
+        flash("Bookings must fit between 8:00 AM and 8:00 PM.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
+    user = current_user()
+    new_booking = {
+        "id": str(uuid4()),
+        "user": user,
+        "court": court_id,
+        "start_datetime": start.strftime(DATETIME_FORMAT),
+        "duration": duration,
+        "created_by": user["club_number"],
+        "created_by_role": user["user_type"],
+    }
+    bookings = load_bookings()
+    conflicts = conflicting_bookings(new_booking, bookings)
+    if conflicts and not is_pro(user):
+        flash("That selection conflicts with an existing booking.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    if conflicts and request.form.get("override_confirmed") != "yes":
+        flash("Confirm the override before replacing another booking.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
+    if conflicts:
+        conflict_ids = {booking["id"] for booking in conflicts}
+        bookings = [booking for booking in bookings if booking["id"] not in conflict_ids]
+        new_booking["override"] = True
+        new_booking["overrode_count"] = len(conflicts)
+    bookings.append(new_booking)
     save_bookings(bookings)
-    print("Reservation created.")
+    flash("Booking created successfully.", "success")
+    return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
+
+@app.post("/bookings/<booking_id>/cancel")
+@login_required
+def cancel_booking(booking_id):
+    return_surface = request.form.get("surface", "hard")
+    return_date_text = request.form.get("return_date", date.today().isoformat())
+    bookings = load_bookings()
+    target = next((booking for booking in bookings if booking["id"] == booking_id), None)
+    if not target:
+        flash("That booking could not be found.", "error")
+    elif target.get("user", {}).get("club_number") != current_user()["club_number"]:
+        flash("You can only cancel your own bookings.", "error")
+    else:
+        bookings.remove(target)
+        save_bookings(bookings)
+        flash("Booking canceled.", "success")
+    return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
+
+if __name__ == "__main__":
+    app.run(debug=True)

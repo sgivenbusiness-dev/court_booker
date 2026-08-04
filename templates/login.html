@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Court Booker{% endblock %}
+{% block content %}
+<section class="login-page" aria-labelledby="login-title">
+    <form class="login-form" method="post">
+        <p class="eyebrow">Member access</p>
+        <h1 id="login-title">Sign in to book a court</h1>
+        <p>Use the username and temporary password issued by the club.</p>
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" value="{{ username|default('') }}" autocomplete="username" autocapitalize="none" required autofocus>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="button button--primary" type="submit">Sign in</button>
+    </form>
+</section>
+{% endblock %}

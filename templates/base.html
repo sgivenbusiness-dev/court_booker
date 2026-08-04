@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Court Booker{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/calendar.js') }}" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Skip to schedule</a>
+    <header class="site-header">
+        <a class="brand" href="{{ url_for('index') }}">Court Booker</a>
+        {% if current_user %}
+            <div class="account-menu">
+                <span>{{ current_user.first_name }} {{ current_user.last_name }}{% if current_user_is_pro %} · Pro{% endif %}</span>
+                <form action="{{ url_for('logout') }}" method="post"><button type="submit">Sign out</button></form>
+            </div>
+        {% endif %}
+    </header>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-stack" aria-live="polite">
+                {% for category, message in messages %}<p class="flash flash--{{ category }}">{{ message }}</p>{% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    <main id="main-content">{% block content %}{% endblock %}</main>
+</body>
+</html>
