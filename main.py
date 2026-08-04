@@ -110,6 +110,22 @@ def parse_booking_roster(member_number_values, guest_count_text, owner):
     return [member_lookup[number] for number in club_numbers], guest_count, None
 
 
+def booking_owner_for_request(staff_user):
+    if not is_pro(staff_user):
+        return staff_user, None
+    owner_number_text = request.form.get("owner_club_number", "").strip()
+    if not owner_number_text:
+        return staff_user, None
+    try:
+        owner_number = int(owner_number_text)
+    except ValueError:
+        return None, "Select a valid booking owner."
+    owner = next((member for member in members if member["club_number"] == owner_number), None)
+    if owner is None:
+        return None, "Select a valid member as the booking owner."
+    return owner, None
+
+
 def current_user():
     club_number = session.get("club_number")
     if club_number is None:
@@ -225,6 +241,7 @@ def calendar(surface):
         duration = int(booking["duration"])
         additional_members = booking.get("additional_members", [])
         guest_count = int(booking.get("guest_count", 0))
+        owner_is_employee = user.get("user_type") == "employee"
         member_roster = ", ".join(
             f'{member.get("first_name", "Member")} {member.get("last_name", "")} (#{member.get("club_number", "?")})'
             for member in additional_members
@@ -242,7 +259,8 @@ def calendar(surface):
                 "additional_member_count": len(additional_members),
                 "member_roster": member_roster,
                 "guest_count": guest_count,
-                "billable_people": 1 + len(additional_members) + guest_count,
+                "billable_people": 1 + len(additional_members) + (0 if owner_is_employee else guest_count),
+                "guests_are_free": owner_is_employee,
                 "is_own": user.get("club_number") == current_user()["club_number"],
                 "is_pro_booking": booking.get("created_by_role") == "employee"
                 or user.get("user_type") == "employee",
@@ -284,6 +302,8 @@ def calendar(surface):
         bookings_by_start=bookings_by_start,
         covered=covered,
         return_url=request.full_path.rstrip("?"),
+        members=members,
+        staff_durations=range(30, CLOSE_MINUTES - OPEN_MINUTES + 1, 30),
     )
 
 
@@ -305,14 +325,20 @@ def create_booking():
     if court_id not in range(len(courts)):
         flash("That court does not exist.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
-    if duration not in ALLOWED_DURATIONS:
-        flash("Bookings must be 30, 60, 90, or 120 minutes.", "error")
+    staff_user = current_user()
+    if (not is_pro(staff_user) and duration not in ALLOWED_DURATIONS) or (
+        is_pro(staff_user) and (duration < 30 or duration % 30 != 0)
+    ):
+        flash("Select a valid booking duration.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     if not is_within_club_hours(start, duration):
         flash("Bookings must fit between 8:00 AM and 8:00 PM.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
-    user = current_user()
+    user, owner_error = booking_owner_for_request(staff_user)
+    if owner_error:
+        flash(owner_error, "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     additional_members, guest_count, roster_error = parse_booking_roster(
         request.form.getlist("additional_member_numbers"),
         request.form.get("guest_count", "0"),
@@ -321,6 +347,8 @@ def create_booking():
     if roster_error:
         flash(roster_error, "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    if user.get("user_type") == "employee":
+        guest_count = 0
 
     new_booking = {
         "id": str(uuid4()),
@@ -331,12 +359,12 @@ def create_booking():
         "owner_club_number": user["club_number"],
         "additional_members": additional_members,
         "guest_count": guest_count,
-        "created_by": user["club_number"],
-        "created_by_role": user["user_type"],
+        "created_by": staff_user["club_number"],
+        "created_by_role": staff_user["user_type"],
     }
     bookings = load_bookings()
     conflicts = conflicting_bookings(new_booking, bookings)
-    if conflicts and not is_pro(user):
+    if conflicts and not is_pro(staff_user):
         flash("That selection conflicts with an existing booking.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     if conflicts and request.form.get("override_confirmed") != "yes":
@@ -363,7 +391,7 @@ def cancel_booking(booking_id):
     target = next((booking for booking in bookings if booking["id"] == booking_id), None)
     if not target:
         flash("That booking could not be found.", "error")
-    elif target.get("user", {}).get("club_number") != current_user()["club_number"]:
+    elif target.get("user", {}).get("club_number") != current_user()["club_number"] and not is_pro(current_user()):
         flash("You can only cancel your own bookings.", "error")
     else:
         bookings.remove(target)

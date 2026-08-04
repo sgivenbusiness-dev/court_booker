@@ -7,6 +7,10 @@
     const bookingForm = document.querySelector("#booking-form");
     const durationSelect = document.querySelector("#booking-duration");
     const isPro = calendar.dataset.isPro === "true";
+    const ownerSelect = document.querySelector("#booking-owner");
+    const ownerCombobox = document.querySelector("#member-owner-combobox");
+    const ownerOptions = document.querySelector("#member-owner-options");
+    const guestCountFields = document.querySelector("#guest-count-fields");
     let drag = null;
     let detailBooking = null;
 
@@ -20,6 +24,35 @@
         const [hours, minutes] = time.split(":").map(Number);
         return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
     };
+
+    function updateGuestCountVisibility() {
+        if (!ownerSelect || !guestCountFields) return;
+        const staffOwned = ownerSelect.value === "";
+        guestCountFields.hidden = staffOwned;
+        document.querySelector("#guest-count").required = !staffOwned;
+        if (staffOwned) document.querySelector("#guest-count").value = "0";
+    }
+
+    function filterOwnerOptions() {
+        if (!ownerOptions) return;
+        const query = ownerSelect.value.trim().toLowerCase();
+        ownerOptions.querySelectorAll("[data-owner-option]").forEach((option) => {
+            option.hidden = query !== "" && !option.dataset.search.includes(query);
+        });
+    }
+
+    function showOwnerOptions() {
+        if (!ownerOptions) return;
+        filterOwnerOptions();
+        ownerOptions.hidden = false;
+        ownerSelect.setAttribute("aria-expanded", "true");
+    }
+
+    function hideOwnerOptions() {
+        if (!ownerOptions) return;
+        ownerOptions.hidden = true;
+        ownerSelect.setAttribute("aria-expanded", "false");
+    }
 
     function cellsForSelection(court, start, duration) {
         const startMinutes = minutesFromTime(start);
@@ -48,6 +81,8 @@
         document.querySelector("#override-confirmed").value = allowConflict ? "yes" : "no";
         document.querySelectorAll("[data-member-number]").forEach((input) => { input.value = ""; });
         document.querySelector("#guest-count").value = "0";
+        if (ownerSelect) ownerSelect.value = "";
+        updateGuestCountVisibility();
         durationSelect.value = String(duration);
         document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
         bookingDialog.showModal();
@@ -75,7 +110,8 @@
         const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-slot]");
         if (!cell || drag.court !== cell.dataset.court) return;
         const duration = minutesFromTime(cell.dataset.time) - minutesFromTime(drag.start) + 30;
-        if (duration >= 30 && duration <= 120) {
+        const latestDuration = 20 * 60 - minutesFromTime(drag.start);
+        if (duration >= 30 && duration <= (isPro ? latestDuration : 120)) {
             drag.duration = duration;
             preview(drag.court, drag.start, drag.duration);
         }
@@ -101,6 +137,33 @@
         preview(court, start, duration);
         document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
     });
+
+    ownerSelect?.addEventListener("input", () => {
+        ownerSelect.value = ownerSelect.value.replace(/\D/g, "");
+        updateGuestCountVisibility();
+        showOwnerOptions();
+    });
+    ownerSelect?.addEventListener("focus", showOwnerOptions);
+    ownerCombobox?.querySelector(".member-combobox-toggle")?.addEventListener("click", () => {
+        if (ownerOptions.hidden) {
+            showOwnerOptions();
+            ownerSelect.focus();
+        } else {
+            hideOwnerOptions();
+        }
+    });
+    ownerOptions?.querySelectorAll("[data-owner-option]").forEach((option) => {
+        option.addEventListener("click", () => {
+            ownerSelect.value = option.dataset.value;
+            updateGuestCountVisibility();
+            hideOwnerOptions();
+            ownerSelect.focus();
+        });
+    });
+    document.addEventListener("pointerdown", (event) => {
+        if (ownerCombobox && !ownerCombobox.contains(event.target)) hideOwnerOptions();
+    });
+    updateGuestCountVisibility();
 
     document.querySelectorAll("[data-member-number]").forEach((input) => {
         input.addEventListener("input", () => {
