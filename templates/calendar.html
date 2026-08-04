@@ -39,13 +39,19 @@
                                         data-name="{{ booking.name }}"
                                         data-time="{{ booking.start_label }}–{{ booking.end_label }}"
                                         data-duration="{{ booking.duration }}"
+                                        data-billing-visible="{{ 'true' if current_user_is_pro or booking.is_own else 'false' }}"
+                                        {% if current_user_is_pro or booking.is_own %}data-owner-club-number="{{ booking.owner_club_number }}"
+                                        data-member-roster="{{ booking.member_roster }}"
+                                        data-additional-member-count="{{ booking.additional_member_count }}"
+                                        data-guest-count="{{ booking.guest_count }}"
+                                        data-billable-people="{{ booking.billable_people }}"{% endif %}
                                         data-court="{{ court.id }}"
                                         data-start="{{ booking.start.strftime('%H:%M') }}"
                                         data-own="{{ 'true' if booking.is_own else 'false' }}"
                                         aria-label="{{ booking.name }}, {{ booking.start_label }} to {{ booking.end_label }}">
                                         <strong>{{ booking.name }}</strong>
                                         <span>{{ booking.start_label }}–{{ booking.end_label }}</span>
-                                        <small>{{ booking.duration }} minutes</small>
+                                        {% if current_user_is_pro or booking.is_own %}<small>Club #{{ booking.owner_club_number }} · {{ booking.guest_count }} guest{% if booking.guest_count != 1 %}s{% endif %}</small>{% else %}<small>{{ booking.duration }} minutes</small>{% endif %}
                                     </button>
                                 </td>
                             {% elif key not in covered %}
@@ -86,6 +92,22 @@
             <select name="duration" id="booking-duration">
                 <option value="30">30 minutes</option><option value="60">60 minutes</option><option value="90">90 minutes</option><option value="120">120 minutes</option>
             </select>
+            <div class="booking-owner"><span>Booking owner</span><strong>{{ current_user.first_name }} {{ current_user.last_name }} · Club #{{ current_user.club_number }}</strong></div>
+            <fieldset class="member-number-fields" aria-describedby="member-number-help">
+                <legend>Other member club numbers</legend>
+                <div>
+                    {% for number in range(1, 4) %}
+                        <div class="member-number-field">
+                            <label for="additional-member-number-{{ number }}">Member {{ number }}</label>
+                            <input id="additional-member-number-{{ number }}" name="additional_member_numbers" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" data-member-number aria-label="Additional member {{ number }} club number">
+                        </div>
+                    {% endfor %}
+                </div>
+            </fieldset>
+            <small id="member-number-help" class="field-help">Enter up to three club numbers. Leave unused boxes blank.</small>
+            <label for="guest-count">Guest count</label>
+            <input id="guest-count" name="guest_count" type="number" min="0" max="20" step="1" value="0" required>
+            <small class="field-help">Guests without a club number who may need a guest charge.</small>
             <p class="dialog-warning" id="booking-warning" hidden>This selection conflicts with a booking and requires a pro override.</p>
             <div class="dialog-actions"><button type="button" class="button button--quiet" data-close-dialog>Cancel</button><button type="submit" class="button button--primary">Confirm booking</button></div>
         </form>
@@ -94,6 +116,12 @@
     <dialog id="details-dialog" class="booking-dialog">
         <div class="dialog-heading"><div><p class="eyebrow">Booking details</p><h2 id="details-name"></h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="Close">×</button></div>
         <p id="details-time"></p><p id="details-duration"></p>
+        <dl class="billing-details" id="billing-details">
+            <div><dt>Booking owner</dt><dd id="details-owner"></dd></div>
+            <div><dt>Additional members</dt><dd id="details-members"></dd></div>
+            <div><dt>Guests</dt><dd id="details-guests"></dd></div>
+            <div><dt>People to account for</dt><dd id="details-billable"></dd></div>
+        </dl>
         <div class="dialog-actions">
             <button type="button" class="button button--quiet" data-close-dialog>Close</button>
             <form method="post" id="cancel-form" data-action-template="{{ url_for('cancel_booking', booking_id='BOOKING_ID') }}">

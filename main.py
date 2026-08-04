@@ -82,6 +82,34 @@ def is_within_club_hours(start_datetime, duration):
     )
 
 
+def parse_booking_roster(member_number_values, guest_count_text, owner):
+    try:
+        guest_count = int(guest_count_text or 0)
+    except ValueError:
+        return None, None, "Guest count must be a whole number."
+    if guest_count < 0 or guest_count > 20:
+        return None, None, "Guest count must be between 0 and 20."
+
+    raw_numbers = [value.strip() for value in member_number_values if value.strip()]
+    if len(raw_numbers) > 3:
+        return None, None, "A booking can include no more than three additional members."
+    try:
+        club_numbers = [int(value) for value in raw_numbers]
+    except ValueError:
+        return None, None, "Additional member numbers must contain only numbers separated by commas."
+    if len(club_numbers) != len(set(club_numbers)):
+        return None, None, "Enter each additional member only once."
+    if owner["club_number"] in club_numbers:
+        return None, None, "The booking owner's club number is already included automatically."
+
+    member_lookup = {member["club_number"]: member for member in members}
+    unknown_numbers = [number for number in club_numbers if number not in member_lookup]
+    if unknown_numbers:
+        formatted = ", ".join(str(number) for number in unknown_numbers)
+        return None, None, f"Unknown member club number(s): {formatted}."
+    return [member_lookup[number] for number in club_numbers], guest_count, None
+
+
 def current_user():
     club_number = session.get("club_number")
     if club_number is None:
@@ -128,6 +156,9 @@ def inject_globals():
     return {
         "current_user": user,
         "current_user_is_pro": is_pro(user),
+        "current_user_role_label": (
+            "Front Desk" if user and user.get("club_number") == 5 else "Pro"
+        ),
     }
 
 
@@ -192,6 +223,12 @@ def calendar(surface):
             continue
         user = booking.get("user", {})
         duration = int(booking["duration"])
+        additional_members = booking.get("additional_members", [])
+        guest_count = int(booking.get("guest_count", 0))
+        member_roster = ", ".join(
+            f'{member.get("first_name", "Member")} {member.get("last_name", "")} (#{member.get("club_number", "?")})'
+            for member in additional_members
+        ) or "None"
         day_bookings.append(
             {
                 **booking,
@@ -201,6 +238,11 @@ def calendar(surface):
                 "end_label": (start + timedelta(minutes=duration)).strftime("%I:%M %p").lstrip("0"),
                 "rowspan": duration // 30,
                 "name": f'{user.get("first_name", "Unknown")} {user.get("last_name", "member")}',
+                "owner_club_number": booking.get("owner_club_number", user.get("club_number", "?")),
+                "additional_member_count": len(additional_members),
+                "member_roster": member_roster,
+                "guest_count": guest_count,
+                "billable_people": 1 + len(additional_members) + guest_count,
                 "is_own": user.get("club_number") == current_user()["club_number"],
                 "is_pro_booking": booking.get("created_by_role") == "employee"
                 or user.get("user_type") == "employee",
@@ -271,12 +313,24 @@ def create_booking():
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
     user = current_user()
+    additional_members, guest_count, roster_error = parse_booking_roster(
+        request.form.getlist("additional_member_numbers"),
+        request.form.get("guest_count", "0"),
+        user,
+    )
+    if roster_error:
+        flash(roster_error, "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+
     new_booking = {
         "id": str(uuid4()),
         "user": user,
         "court": court_id,
         "start_datetime": start.strftime(DATETIME_FORMAT),
         "duration": duration,
+        "owner_club_number": user["club_number"],
+        "additional_members": additional_members,
+        "guest_count": guest_count,
         "created_by": user["club_number"],
         "created_by_role": user["user_type"],
     }

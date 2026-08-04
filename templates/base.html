@@ -13,7 +13,7 @@
         <a class="brand" href="{{ url_for('index') }}">Court Booker</a>
         {% if current_user %}
             <div class="account-menu">
-                <span>{{ current_user.first_name }} {{ current_user.last_name }}{% if current_user_is_pro %} · Pro{% endif %}</span>
+                <span>{{ current_user.first_name }} {{ current_user.last_name }}{% if current_user_is_pro %} · {{ current_user_role_label }}{% endif %}</span>
                 <form action="{{ url_for('logout') }}" method="post"><button type="submit">Sign out</button></form>
             </div>
         {% endif %}

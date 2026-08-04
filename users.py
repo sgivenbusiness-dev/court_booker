@@ -57,4 +57,5 @@ pros = [
     {"first_name": "Chris", "last_name": "Taylor", "club_number": 2, "user_type": "employee"},
     {"first_name": "Maya", "last_name": "Takaichi", "club_number": 3, "user_type": "employee"},
     {"first_name": "Ethan", "last_name": "Brooks", "club_number": 4, "user_type": "employee"},
+    {"first_name": "Front", "last_name": "Desk", "club_number": 5, "user_type": "employee"},
 ]

@@ -46,6 +46,8 @@
         document.querySelector("#booking-court").value = court;
         document.querySelector("#booking-start").value = start;
         document.querySelector("#override-confirmed").value = allowConflict ? "yes" : "no";
+        document.querySelectorAll("[data-member-number]").forEach((input) => { input.value = ""; });
+        document.querySelector("#guest-count").value = "0";
         durationSelect.value = String(duration);
         document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
         bookingDialog.showModal();
@@ -100,6 +102,16 @@
         document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
     });
 
+    document.querySelectorAll("[data-member-number]").forEach((input) => {
+        input.addEventListener("input", () => {
+            input.value = input.value.replace(/\D/g, "");
+        });
+        input.addEventListener("paste", (event) => {
+            const pasted = event.clipboardData?.getData("text") || "";
+            if (/\D/.test(pasted)) event.preventDefault();
+        });
+    });
+
     bookingForm?.addEventListener("submit", (event) => {
         const court = document.querySelector("#booking-court").value;
         const start = document.querySelector("#booking-start").value;
@@ -136,6 +148,14 @@
             document.querySelector("#details-name").textContent = button.dataset.name;
             document.querySelector("#details-time").textContent = button.dataset.time;
             document.querySelector("#details-duration").textContent = `${button.dataset.duration} minutes`;
+            const billingDetails = document.querySelector("#billing-details");
+            billingDetails.hidden = button.dataset.billingVisible !== "true";
+            if (!billingDetails.hidden) {
+                document.querySelector("#details-owner").textContent = `${button.dataset.name} · Club #${button.dataset.ownerClubNumber}`;
+                document.querySelector("#details-members").textContent = button.dataset.memberRoster;
+                document.querySelector("#details-guests").textContent = button.dataset.guestCount;
+                document.querySelector("#details-billable").textContent = button.dataset.billablePeople;
+            }
             const cancelForm = document.querySelector("#cancel-form");
             cancelForm.action = cancelForm.dataset.actionTemplate.replace("BOOKING_ID", encodeURIComponent(button.dataset.id));
             cancelForm.hidden = button.dataset.own !== "true";
