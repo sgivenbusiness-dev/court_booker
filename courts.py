@@ -4,11 +4,11 @@ courts = [
         "surface": "hard",
     },
     {
-        "name": "Court 2",
+        "name": "Court 3",
         "surface": "clay",
     },
     {
-        "name": "Court 3",
+        "name": "Court 2",
         "surface": "hard",
     },
     {
