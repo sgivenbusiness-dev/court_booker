@@ -97,8 +97,12 @@ a { color: var(--accent-dark); }
 .booking-dialog label { display: block; margin-bottom: .3rem; font-size: .8rem; font-weight: 700; }
 .booking-dialog select { width: 100%; padding: .55rem; border: 1px solid var(--line); border-radius: 4px; }
 .booking-dialog input[type="text"], .booking-dialog input[type="number"] { width: 100%; padding: .55rem; border: 1px solid var(--line); border-radius: 4px; }
-.member-combobox { position: relative; }
-.booking-dialog .member-combobox input { padding-right: 2.4rem; }
+.member-combobox { position: relative; min-height: 42px; display: flex; align-items: center; gap: .45rem; padding: .45rem 2.4rem .45rem .55rem; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.member-combobox:focus-within { outline: 2px solid #f5a623; outline-offset: 2px; }
+.member-combobox-selected { min-width: 0; display: flex; align-items: baseline; gap: .45rem; white-space: nowrap; }
+.member-combobox-selected strong { overflow: hidden; text-overflow: ellipsis; }
+.member-combobox-selected span { color: var(--muted); font-size: .78rem; }
+.booking-dialog .member-combobox #booking-owner-search { min-width: 2.5rem; flex: 1; padding: 0; border: 0; outline: 0; }
 .member-combobox-toggle { position: absolute; right: .2rem; top: .2rem; bottom: .2rem; width: 2rem; border: 0; background: transparent; color: #111; cursor: pointer; font-size: 1rem; }
 .member-combobox-options { position: absolute; z-index: 20; top: calc(100% + 3px); left: 0; right: 0; max-height: 220px; overflow-y: auto; padding: .25rem; border: 1px solid var(--line); border-radius: 4px; background: #fff; box-shadow: 0 8px 24px rgb(12 25 42 / 20%); }
 .member-combobox-options button { width: 100%; display: flex; align-items: baseline; gap: .6rem; padding: .5rem .55rem; border: 0; border-radius: 3px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }

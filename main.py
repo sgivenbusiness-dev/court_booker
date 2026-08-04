@@ -120,6 +120,8 @@ def booking_owner_for_request(staff_user):
         owner_number = int(owner_number_text)
     except ValueError:
         return None, "Select a valid booking owner."
+    if owner_number == staff_user["club_number"]:
+        return staff_user, None
     owner = next((member for member in members if member["club_number"] == owner_number), None)
     if owner is None:
         return None, "Select a valid member as the booking owner."
@@ -347,9 +349,6 @@ def create_booking():
     if roster_error:
         flash(roster_error, "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
-    if user.get("user_type") == "employee":
-        guest_count = 0
-
     new_booking = {
         "id": str(uuid4()),
         "user": user,

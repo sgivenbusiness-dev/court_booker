@@ -51,7 +51,7 @@
                                         aria-label="{{ booking.name }}, {{ booking.start_label }} to {{ booking.end_label }}">
                                         <strong>{{ booking.name }}</strong>
                                         <span>{{ booking.start_label }}–{{ booking.end_label }}</span>
-                                        {% if current_user_is_pro or booking.is_own %}<small>Club #{{ booking.owner_club_number }}{% if not booking.guests_are_free %} · {{ booking.guest_count }} guest{% if booking.guest_count != 1 %}s{% endif %}{% endif %}</small>{% else %}<small>{{ booking.duration }} minutes</small>{% endif %}
+                                        {% if current_user_is_pro or booking.is_own %}<small>Club #{{ booking.owner_club_number }} · {{ booking.guest_count }} guest{% if booking.guest_count != 1 %}s{% endif %}{% if booking.guests_are_free %} (free){% endif %}</small>{% else %}<small>{{ booking.duration }} minutes</small>{% endif %}
                                     </button>
                                 </td>
                             {% elif key not in covered %}
@@ -97,16 +97,17 @@
                 {% endif %}
             </select>
             {% if current_user_is_pro %}
-                <label for="booking-owner">Book for</label>
+                <label for="booking-owner-search">Book for</label>
                 <div class="member-combobox" id="member-owner-combobox">
-                    <input name="owner_club_number" id="booking-owner" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="Myself — or type a member number" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="member-owner-options">
+                    <input name="owner_club_number" id="booking-owner" type="hidden" value="{{ current_user.club_number }}" data-current-owner="{{ current_user.club_number }}">
+                    <div class="member-combobox-selected" id="member-owner-selected"><strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><span>Club #{{ current_user.club_number }}</span></div>
+                    <input id="booking-owner-search" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" aria-label="Type a member number" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="member-owner-options">
                     <button type="button" class="member-combobox-toggle" aria-label="Show members" tabindex="-1">▾</button>
                     <div class="member-combobox-options" id="member-owner-options" role="listbox" hidden>
-                        <button type="button" role="option" data-owner-option data-value="" data-search="myself {{ current_user.first_name }} {{ current_user.last_name }}">Myself <span>{{ current_user.first_name }} {{ current_user.last_name }}</span></button>
-                        {% for member in members %}<button type="button" role="option" data-owner-option data-value="{{ member.club_number }}" data-search="{{ member.club_number }} {{ member.first_name|lower }} {{ member.last_name|lower }}"><strong>{{ member.club_number }}</strong><span>{{ member.first_name }} {{ member.last_name }}</span></button>{% endfor %}
+                        <button type="button" role="option" data-owner-option data-value="{{ current_user.club_number }}" data-name="{{ current_user.first_name }} {{ current_user.last_name }}" data-search="{{ current_user.club_number }} {{ current_user.first_name|lower }} {{ current_user.last_name|lower }}"><strong>{{ current_user.first_name }} {{ current_user.last_name }}</strong><span>Club #{{ current_user.club_number }}</span></button>
+                        {% for member in members %}<button type="button" role="option" data-owner-option data-value="{{ member.club_number }}" data-name="{{ member.first_name }} {{ member.last_name }}" data-search="{{ member.club_number }} {{ member.first_name|lower }} {{ member.last_name|lower }}"><strong>{{ member.first_name }} {{ member.last_name }}</strong><span>Club #{{ member.club_number }}</span></button>{% endfor %}
                     </div>
                 </div>
-                <small class="field-help">Leave blank to book for yourself.</small>
             {% else %}
                 <div class="booking-owner"><span>Booking owner</span><strong>{{ current_user.first_name }} {{ current_user.last_name }} · Club #{{ current_user.club_number }}</strong></div>
             {% endif %}
@@ -121,11 +122,9 @@
                     {% endfor %}
                 </div>
             </fieldset>
-            <small id="member-number-help" class="field-help">Up to four members total, including the booking owner.</small>
             <div id="guest-count-fields">
                 <label for="guest-count">Guest count</label>
                 <input id="guest-count" name="guest_count" type="number" min="0" max="20" step="1" value="0" required>
-                <small class="field-help">Guests without a club number who may need a guest charge.</small>
             </div>
             <p class="dialog-warning" id="booking-warning" hidden>This selection conflicts with a booking and requires a pro override.</p>
             <div class="dialog-actions"><button type="button" class="button button--quiet" data-close-dialog>Cancel</button><button type="submit" class="button button--primary">Confirm booking</button></div>
