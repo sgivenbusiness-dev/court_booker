@@ -13,6 +13,10 @@
     const ownerCombobox = document.querySelector("#member-owner-combobox");
     const ownerOptions = document.querySelector("#member-owner-options");
     const guestCountFields = document.querySelector("#guest-count-fields");
+    const courtInput = document.querySelector("#booking-court");
+    const courtIdsInput = document.querySelector("#booking-court-ids");
+    const courtOrder = [...calendar.querySelectorAll("[data-court-heading]")]
+        .map((heading) => heading.dataset.courtHeading);
     let drag = null;
     let detailBooking = null;
 
@@ -62,10 +66,24 @@
         updateGuestCountVisibility();
     }
 
-    function cellsForSelection(court, start, duration) {
+    function normalizeCourts(courts) {
+        return (Array.isArray(courts) ? courts : [courts]).map(String);
+    }
+
+    function selectedCourtsBetween(firstCourt, lastCourt) {
+        if (!isPro) return [String(firstCourt)];
+        const firstIndex = courtOrder.indexOf(String(firstCourt));
+        const lastIndex = courtOrder.indexOf(String(lastCourt));
+        if (firstIndex === -1 || lastIndex === -1) return [String(firstCourt)];
+        return courtOrder.slice(Math.min(firstIndex, lastIndex), Math.max(firstIndex, lastIndex) + 1);
+    }
+
+    function cellsForSelection(courts, start, duration) {
         const startMinutes = minutesFromTime(start);
-        return Array.from({ length: duration / 30 }, (_, index) =>
-            calendar.querySelector(`[data-slot][data-court="${court}"][data-time="${timeFromMinutes(startMinutes + index * 30)}"]`)
+        return normalizeCourts(courts).flatMap((court) =>
+            Array.from({ length: duration / 30 }, (_, index) =>
+                calendar.querySelector(`[data-slot][data-court="${court}"][data-time="${timeFromMinutes(startMinutes + index * 30)}"]`)
+            )
         );
     }
 
@@ -73,18 +91,22 @@
         allSlots().forEach((cell) => cell.classList.remove("slot-cell--selecting", "slot-cell--invalid"));
     }
 
-    function preview(court, start, duration) {
+    function preview(courts, start, duration) {
         clearPreview();
-        const cells = cellsForSelection(court, start, duration);
-        const valid = cells.length === duration / 30 && cells.every((cell) => cell && cell.dataset.blocked !== "true");
+        const selectedCourts = normalizeCourts(courts);
+        const cells = cellsForSelection(selectedCourts, start, duration);
+        const expectedCellCount = selectedCourts.length * duration / 30;
+        const valid = cells.length === expectedCellCount && cells.every((cell) => cell && cell.dataset.blocked !== "true");
         cells.filter(Boolean).forEach((cell) => cell.classList.add(valid ? "slot-cell--selecting" : "slot-cell--invalid"));
         return valid;
     }
 
-    function openBooking(court, start, duration, allowConflict = false) {
-        if (!allowConflict && !preview(court, start, duration)) return;
+    function openBooking(courts, start, duration, allowConflict = false) {
+        const selectedCourts = normalizeCourts(courts);
+        if (!allowConflict && !preview(selectedCourts, start, duration)) return;
         if (allowConflict) clearPreview();
-        document.querySelector("#booking-court").value = court;
+        courtInput.value = selectedCourts[0];
+        courtIdsInput.value = selectedCourts.join(",");
         document.querySelector("#booking-start").value = start;
         document.querySelector("#override-confirmed").value = allowConflict ? "yes" : "no";
         document.querySelectorAll("[data-member-number]").forEach((input) => { input.value = ""; });
@@ -95,7 +117,10 @@
         }
         updateGuestCountVisibility();
         durationSelect.value = String(duration);
-        document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
+        const timeSummary = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
+        document.querySelector("#booking-summary").textContent = selectedCourts.length > 1
+            ? `${selectedCourts.length} courts · ${timeSummary}`
+            : timeSummary;
         bookingDialog.showModal();
     }
 
@@ -104,9 +129,14 @@
         cell.addEventListener("pointerdown", (event) => {
             if (event.button !== 0) return;
             event.preventDefault();
-            drag = { court: cell.dataset.court, start: cell.dataset.time, duration: 30 };
+            drag = {
+                anchorCourt: cell.dataset.court,
+                courts: [cell.dataset.court],
+                start: cell.dataset.time,
+                duration: 30,
+            };
             cell.setPointerCapture(event.pointerId);
-            preview(drag.court, drag.start, drag.duration);
+            preview(drag.courts, drag.start, drag.duration);
         });
         cell.querySelector("button")?.addEventListener("keydown", (event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -119,12 +149,13 @@
     document.addEventListener("pointermove", (event) => {
         if (!drag) return;
         const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-slot]");
-        if (!cell || drag.court !== cell.dataset.court) return;
+        if (!cell || (!isPro && drag.anchorCourt !== cell.dataset.court)) return;
         const duration = minutesFromTime(cell.dataset.time) - minutesFromTime(drag.start) + 30;
         const latestDuration = 20 * 60 - minutesFromTime(drag.start);
         if (duration >= 30 && duration <= (isPro ? latestDuration : 120)) {
             drag.duration = duration;
-            preview(drag.court, drag.start, drag.duration);
+            drag.courts = selectedCourtsBetween(drag.anchorCourt, cell.dataset.court);
+            preview(drag.courts, drag.start, drag.duration);
         }
     });
 
@@ -133,7 +164,7 @@
         event.preventDefault();
         const selection = drag;
         drag = null;
-        openBooking(selection.court, selection.start, selection.duration);
+        openBooking(selection.courts, selection.start, selection.duration);
     });
 
     document.addEventListener("pointercancel", () => {
@@ -142,11 +173,14 @@
     });
 
     durationSelect?.addEventListener("change", () => {
-        const court = document.querySelector("#booking-court").value;
+        const selectedCourts = courtIdsInput.value.split(",").filter(Boolean);
         const start = document.querySelector("#booking-start").value;
         const duration = Number(durationSelect.value);
-        preview(court, start, duration);
-        document.querySelector("#booking-summary").textContent = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
+        preview(selectedCourts, start, duration);
+        const timeSummary = `${displayTime(start)}–${displayTime(timeFromMinutes(minutesFromTime(start) + duration))}`;
+        document.querySelector("#booking-summary").textContent = selectedCourts.length > 1
+            ? `${selectedCourts.length} courts · ${timeSummary}`
+            : timeSummary;
     });
 
     ownerSearch?.addEventListener("input", () => {
@@ -188,16 +222,16 @@
     });
 
     bookingForm?.addEventListener("submit", (event) => {
-        const court = document.querySelector("#booking-court").value;
+        const selectedCourts = courtIdsInput.value.split(",").filter(Boolean);
         const start = document.querySelector("#booking-start").value;
         const duration = Number(durationSelect.value);
         const confirmedOverride = document.querySelector("#override-confirmed").value === "yes";
-        if (!confirmedOverride && !preview(court, start, duration)) {
+        if (!confirmedOverride && !preview(selectedCourts, start, duration)) {
             event.preventDefault();
             document.querySelector("#booking-warning").hidden = false;
             return;
         }
-        if (isPro && selectionOverlapsBooking(court, start, duration)) {
+        if (isPro && selectionOverlapsBooking(selectedCourts, start, duration)) {
             if (!window.confirm("This will replace a conflicting booking. Continue with the override?")) {
                 event.preventDefault();
                 return;
@@ -206,11 +240,12 @@
         }
     });
 
-    function selectionOverlapsBooking(court, start, duration) {
+    function selectionOverlapsBooking(courts, start, duration) {
+        const selectedCourts = normalizeCourts(courts);
         const selectedStart = minutesFromTime(start);
         const selectedEnd = selectedStart + duration;
         return [...calendar.querySelectorAll("[data-booking]")].some((booking) => {
-            if (booking.dataset.court !== String(court)) return false;
+            if (!selectedCourts.includes(booking.dataset.court)) return false;
             const bookingStart = minutesFromTime(booking.dataset.start);
             const bookingEnd = bookingStart + Number(booking.dataset.duration);
             return selectedStart < bookingEnd && selectedEnd > bookingStart;

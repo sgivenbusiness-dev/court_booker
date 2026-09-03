@@ -82,6 +82,24 @@ def is_within_club_hours(start_datetime, duration):
     )
 
 
+def requested_court_ids():
+    raw_court_ids = request.form.get("court_ids", "").strip()
+    if not raw_court_ids:
+        raw_court_ids = request.form.get("court", "").strip()
+
+    try:
+        court_ids = [
+            int(value.strip())
+            for value in raw_court_ids.split(",")
+            if value.strip()
+        ]
+    except ValueError:
+        return None
+
+    # Preserve the visible left-to-right order while discarding duplicate IDs.
+    return list(dict.fromkeys(court_ids)) or None
+
+
 def parse_booking_roster(member_number_values, guest_count_text, owner):
     try:
         guest_count = int(guest_count_text or 0)
@@ -315,7 +333,7 @@ def create_booking():
     return_surface = request.form.get("surface", "hard")
     return_date_text = request.form.get("return_date", date.today().isoformat())
     try:
-        court_id = int(request.form["court"])
+        court_ids = requested_court_ids()
         duration = int(request.form["duration"])
         start = datetime.strptime(
             f'{request.form["date"]} {request.form["start_time"]}', DATETIME_FORMAT
@@ -324,10 +342,16 @@ def create_booking():
         flash("The selected court time is invalid.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
-    if court_id not in range(len(courts)):
+    if not court_ids or any(court_id not in range(len(courts)) for court_id in court_ids):
         flash("That court does not exist.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     staff_user = current_user()
+    if len(court_ids) > 1 and not is_pro(staff_user):
+        flash("Only pros and Front Desk staff can book multiple courts at once.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    if len({courts[court_id]["surface"] for court_id in court_ids}) > 1:
+        flash("Selected courts must have the same surface.", "error")
+        return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     if (not is_pro(staff_user) and duration not in ALLOWED_DURATIONS) or (
         is_pro(staff_user) and (duration < 30 or duration % 30 != 0)
     ):
@@ -349,20 +373,31 @@ def create_booking():
     if roster_error:
         flash(roster_error, "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
-    new_booking = {
-        "id": str(uuid4()),
-        "user": user,
-        "court": court_id,
-        "start_datetime": start.strftime(DATETIME_FORMAT),
-        "duration": duration,
-        "owner_club_number": user["club_number"],
-        "additional_members": additional_members,
-        "guest_count": guest_count,
-        "created_by": staff_user["club_number"],
-        "created_by_role": staff_user["user_type"],
-    }
+    new_bookings = [
+        {
+            "id": str(uuid4()),
+            "user": user,
+            "court": court_id,
+            "start_datetime": start.strftime(DATETIME_FORMAT),
+            "duration": duration,
+            "owner_club_number": user["club_number"],
+            "additional_members": additional_members,
+            "guest_count": guest_count,
+            "created_by": staff_user["club_number"],
+            "created_by_role": staff_user["user_type"],
+        }
+        for court_id in court_ids
+    ]
     bookings = load_bookings()
-    conflicts = conflicting_bookings(new_booking, bookings)
+    conflicts_by_court = {
+        new_booking["court"]: conflicting_bookings(new_booking, bookings)
+        for new_booking in new_bookings
+    }
+    conflicts = [
+        conflict
+        for court_conflicts in conflicts_by_court.values()
+        for conflict in court_conflicts
+    ]
     if conflicts and not is_pro(staff_user):
         flash("That selection conflicts with an existing booking.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
@@ -373,11 +408,17 @@ def create_booking():
     if conflicts:
         conflict_ids = {booking["id"] for booking in conflicts}
         bookings = [booking for booking in bookings if booking["id"] not in conflict_ids]
-        new_booking["override"] = True
-        new_booking["overrode_count"] = len(conflicts)
-    bookings.append(new_booking)
+        for new_booking in new_bookings:
+            court_conflicts = conflicts_by_court[new_booking["court"]]
+            if court_conflicts:
+                new_booking["override"] = True
+                new_booking["overrode_count"] = len(court_conflicts)
+    bookings.extend(new_bookings)
     save_bookings(bookings)
-    flash("Booking created successfully.", "success")
+    if len(new_bookings) == 1:
+        flash("Booking created successfully.", "success")
+    else:
+        flash(f"{len(new_bookings)} courts booked successfully.", "success")
     return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
 

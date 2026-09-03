@@ -1,3 +1,4 @@
 data/initial_credentials.csv
 __pycache__/
 *.pyc
+.venv/

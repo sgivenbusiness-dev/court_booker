@@ -16,12 +16,15 @@
         <a class="nav-button" href="{{ url_for('calendar', surface=surface, date=next_date.isoformat()) }}" aria-label="Next day">Next →</a>
     </div>
 
-    <p class="interaction-hint">Click and drag down an open court column to choose up to two hours.</p>
+    <p class="interaction-hint">
+        {% if current_user_is_pro %}Drag down and across open slots to book multiple courts at once.
+        {% else %}Click and drag down an open court column to choose up to two hours.{% endif %}
+    </p>
 
     <div class="calendar-scroll" tabindex="0" aria-label="Scrollable {{ surface }} court schedule">
         <table class="schedule-table">
             <thead>
-                <tr><th class="time-heading" scope="col">Time</th>{% for court in courts %}<th scope="col">{{ court.name }}</th>{% endfor %}</tr>
+                <tr><th class="time-heading" scope="col">Time</th>{% for court in courts %}<th scope="col" data-court-heading="{{ court.id }}">{{ court.name }}</th>{% endfor %}</tr>
             </thead>
             <tbody>
                 {% for slot in slots %}
@@ -86,6 +89,7 @@
             <input type="hidden" name="return_date" value="{{ selected_date.isoformat() }}">
             <input type="hidden" name="surface" value="{{ surface }}">
             <input type="hidden" name="court" id="booking-court">
+            <input type="hidden" name="court_ids" id="booking-court-ids">
             <input type="hidden" name="start_time" id="booking-start">
             <input type="hidden" name="override_confirmed" id="override-confirmed" value="no">
             <label for="booking-duration">Duration</label>
