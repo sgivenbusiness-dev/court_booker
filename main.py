@@ -24,6 +24,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("COURT_BOOKER_SECRET", "court-booker-development-key")
 
 
+#returns user by club number or none
+#for loop that uses next to make it shorter
 def find_user_by_club_number(club_number):
     return next(
         (user for user in pros + members if user["club_number"] == club_number),

@@ -24,5 +24,58 @@
         "duration": 90,
         "created_by": 0,
         "created_by_role": "employee"
+    },
+    {
+        "id": "72578868-8a65-4674-bfbb-bcbd70e7e85a",
+        "user": {
+            "first_name": "Aubrey",
+            "last_name": "York",
+            "club_number": 1047,
+            "user_type": "member"
+        },
+        "court": 1,
+        "start_datetime": "2026-08-06 10:00",
+        "duration": 60,
+        "owner_club_number": 1047,
+        "additional_members": [
+            {
+                "first_name": "Lucas",
+                "last_name": "King",
+                "club_number": 1010,
+                "user_type": "member"
+            },
+            {
+                "first_name": "Charlotte",
+                "last_name": "Lewis",
+                "club_number": 1011,
+                "user_type": "member"
+            },
+            {
+                "first_name": "Jack",
+                "last_name": "Collins",
+                "club_number": 1026,
+                "user_type": "member"
+            }
+        ],
+        "guest_count": 2,
+        "created_by": 0,
+        "created_by_role": "employee"
+    },
+    {
+        "id": "d7be94c4-9160-44f6-b81e-a5792564c96b",
+        "user": {
+            "first_name": "Sean",
+            "last_name": "Given",
+            "club_number": 0,
+            "user_type": "employee"
+        },
+        "court": 0,
+        "start_datetime": "2026-08-21 17:30",
+        "duration": 150,
+        "owner_club_number": 0,
+        "additional_members": [],
+        "guest_count": 0,
+        "created_by": 0,
+        "created_by_role": "employee"
     }
 ]

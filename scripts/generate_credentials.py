@@ -1,11 +1,21 @@
 import csv
+import hashlib
 import json
 import secrets
 import string
 import sys
 from pathlib import Path
 
-from werkzeug.security import generate_password_hash
+try:
+    from werkzeug.security import generate_password_hash
+except ModuleNotFoundError:
+    def generate_password_hash(password):
+        """Generate the same default scrypt format used by Werkzeug."""
+        salt = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+        digest = hashlib.scrypt(
+            password.encode(), salt=salt.encode(), n=32768, r=8, p=1, maxmem=64 * 1024 * 1024
+        )
+        return f"scrypt:32768:8:1${salt}${digest.hex()}"
 
 
 ROOT = Path(__file__).resolve().parents[1]

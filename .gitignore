@@ -1,4 +1,5 @@
 data/initial_credentials.csv
+data/credential_backup_*/
 __pycache__/
 *.pyc
 .venv/
