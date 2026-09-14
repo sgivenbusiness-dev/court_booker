@@ -38,15 +38,17 @@ The booking logic checks for:
 
 1. Clone the repository.
 2. Install the required Python packages with `python -m pip install -r requirements.txt`.
-3. For a new database, create the initial accounts with `python scripts/generate_credentials.py`.
-4. Save the generated one-time credentials from `data/initial_credentials.csv` somewhere secure.
+3. For a new database, create the test accounts with `python scripts/generate_credentials.py`.
+4. Choose a login from `data/initial_credentials.csv`.
 5. Run the Flask application with `python main.py`.
 6. Open the local Flask server in a web browser.
 
 The credential-generation command creates `instance/court_booker.db`, seeds its users
-and courts, and stores password hashes in SQLite. The one-time credential CSV is
-ignored by Git. After setup, users, courts, bookings, and login credentials are read
-from the SQLite database without any additional data files.
+and courts, and stores password hashes in SQLite. The repository's credential CSV
+contains shared test logins so a new development database can use the same accounts on
+any device. These credentials are for local testing only and must be replaced before
+deploying the application. After setup, the running application reads users, courts,
+bookings, and password hashes from SQLite.
 
 ## Purpose
 

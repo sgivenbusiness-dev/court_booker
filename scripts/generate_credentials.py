@@ -1,6 +1,4 @@
 import csv
-import secrets
-import string
 import sys
 from pathlib import Path
 
@@ -17,65 +15,65 @@ from users import pros as initial_pros  # noqa: E402
 
 DATA_DIR = ROOT / "data"
 EXPORT_FILE = DATA_DIR / "initial_credentials.csv"
-ALPHABET = string.ascii_letters + string.digits + "!@#$%"
 
 
-def username_for(user):
-    return f"{user.first_name}.{user.last_name}".lower()
+def load_initial_credentials():
+    if not EXPORT_FILE.exists():
+        raise SystemExit(f"The test credential file is missing: {EXPORT_FILE}")
 
+    with EXPORT_FILE.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
 
-def users_for_credentials():
-    users_by_club_number = {
-        user.club_number: user for user in db.session.scalars(db.select(User))
-    }
+    credentials = {}
+    for row in rows:
+        try:
+            club_number = int(row["club_number"])
+            username = row["username"].strip().lower()
+            password = row["password"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise SystemExit("The test credential file has an invalid row.") from error
 
-    for user_data in initial_pros + initial_members:
-        club_number = user_data["club_number"]
-        if club_number not in users_by_club_number:
-            user = User(
-                **user_data,
-                username=f"{user_data['first_name']}.{user_data['last_name']}".lower(),
-                password_hash="pending",
-            )
-            db.session.add(user)
-            users_by_club_number[club_number] = user
+        if not username or not password:
+            raise SystemExit("Every test credential needs a username and password.")
+        if club_number in credentials:
+            raise SystemExit(f"Duplicate club number in test credentials: {club_number}")
+        credentials[club_number] = (username, password)
 
-    return sorted(users_by_club_number.values(), key=lambda user: user.club_number)
+    return credentials
 
 
 def generate():
-    DATA_DIR.mkdir(exist_ok=True)
-    if EXPORT_FILE.exists():
-        raise SystemExit(
-            "The credential export already exists; remove it explicitly before "
-            "regenerating all passwords."
-        )
+    credentials = load_initial_credentials()
+    seed_users = initial_pros + initial_members
+    missing_credentials = [
+        user["club_number"]
+        for user in seed_users
+        if user["club_number"] not in credentials
+    ]
+    if missing_credentials:
+        formatted = ", ".join(str(number) for number in missing_credentials)
+        raise SystemExit(f"Missing test credentials for club number(s): {formatted}")
 
-    exported = []
     with app.app_context():
-        for user in users_for_credentials():
-            username = username_for(user)
-            password = "".join(secrets.choice(ALPHABET) for _ in range(14))
-            user.username = username
-            user.password_hash = generate_password_hash(password)
-            exported.append(
-                {
-                    "name": f"{user.first_name} {user.last_name}",
-                    "role": user.user_type,
-                    "club_number": user.club_number,
-                    "username": username,
-                    "temporary_password": password,
-                }
+        if db.session.scalar(db.select(db.func.count()).select_from(User)):
+            raise SystemExit(
+                "The database already contains users; test credentials were not changed."
+            )
+
+        for user_data in seed_users:
+            username, password = credentials[user_data["club_number"]]
+            db.session.add(
+                User(
+                    **user_data,
+                    username=username,
+                    password_hash=generate_password_hash(password),
+                )
             )
         db.session.commit()
 
-    with EXPORT_FILE.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=exported[0].keys())
-        writer.writeheader()
-        writer.writerows(exported)
-    print(f"Generated {len(exported)} accounts.")
+    print(f"Created {len(seed_users)} test accounts.")
     print("Password hashes saved in SQLite.")
-    print(f"One-time credentials: {EXPORT_FILE}")
+    print(f"Test usernames and passwords: {EXPORT_FILE}")
 
 
 if __name__ == "__main__":
