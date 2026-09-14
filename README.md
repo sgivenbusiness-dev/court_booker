@@ -23,7 +23,7 @@ A Flask-based web application for managing tennis court reservations. The applic
 
 ## How It Works
 
-Users log in using their club number and select a court, date, start time, and reservation duration. The application validates the request before creating the reservation.
+Users log in using their username and password, then select a court, date, start time, and reservation duration. The application validates the request before creating the reservation.
 
 Members are limited to standard booking rules, while teaching professionals have additional privileges for managing court reservations.
 
@@ -38,11 +38,15 @@ The booking logic checks for:
 
 1. Clone the repository.
 2. Install the required Python packages with `python -m pip install -r requirements.txt`.
-3. Run the Flask application with `python main.py`.
-4. Open the local Flask server in a web browser.
+3. For a new database, create the initial accounts with `python scripts/generate_credentials.py`.
+4. Save the generated one-time credentials from `data/initial_credentials.csv` somewhere secure.
+5. Run the Flask application with `python main.py`.
+6. Open the local Flask server in a web browser.
 
-On first startup, the application creates `instance/court_booker.db` and seeds the
-users and courts. Bookings and login credentials are stored in that SQLite database.
+The credential-generation command creates `instance/court_booker.db`, seeds its users
+and courts, and stores password hashes in SQLite. The one-time credential CSV is
+ignored by Git. After setup, users, courts, bookings, and login credentials are read
+from the SQLite database without any additional data files.
 
 ## Purpose
 
