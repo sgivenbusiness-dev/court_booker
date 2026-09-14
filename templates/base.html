@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {# A child template can replace the content inside a named block. #}
     <title>{% block title %}Court Booker{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="{{ url_for('static', filename='js/calendar.js') }}" defer></script>
@@ -11,6 +12,7 @@
     <a class="skip-link" href="#main-content">Skip to schedule</a>
     <header class="site-header">
         <a class="brand" href="{{ url_for('index') }}">Court Booker</a>
+        {# Jinja includes this HTML only when a user is signed in. #}
         {% if current_user %}
             <div class="account-menu">
                 <span>{{ current_user.first_name }} {{ current_user.last_name }}{% if current_user_is_pro %} · {{ current_user_role_label }}{% endif %}</span>
@@ -18,9 +20,11 @@
             </div>
         {% endif %}
     </header>
+    {# "with" gives the messages a short local name for this section. #}
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             <div class="flash-stack" aria-live="polite">
+                {# Double braces print a value; this loop prints every message. #}
                 {% for category, message in messages %}<p class="flash flash--{{ category }}">{{ message }}</p>{% endfor %}
             </div>
         {% endif %}

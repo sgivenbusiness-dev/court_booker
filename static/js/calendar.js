@@ -1,3 +1,4 @@
+// This wrapper runs immediately and keeps these variables out of the global scope.
 (() => {
     const calendar = document.querySelector("[data-calendar]");
     if (!calendar) return;
@@ -6,6 +7,7 @@
     const detailsDialog = document.querySelector("#details-dialog");
     const bookingForm = document.querySelector("#booking-form");
     const durationSelect = document.querySelector("#booking-duration");
+    // dataset reads HTML attributes whose names start with "data-".
     const isPro = calendar.dataset.isPro === "true";
     const ownerSelect = document.querySelector("#booking-owner");
     const ownerSearch = document.querySelector("#booking-owner-search");
@@ -15,16 +17,20 @@
     const guestCountFields = document.querySelector("#guest-count-fields");
     const courtInput = document.querySelector("#booking-court");
     const courtIdsInput = document.querySelector("#booking-court-ids");
+    // [...] turns the browser's element collection into a normal array.
     const courtOrder = [...calendar.querySelectorAll("[data-court-heading]")]
         .map((heading) => heading.dataset.courtHeading);
     let drag = null;
     let detailBooking = null;
 
+    // => defines a short function; calling allSlots() returns all open slot cells.
     const allSlots = () => [...calendar.querySelectorAll("[data-slot]")];
     const minutesFromTime = (time) => {
+        // Destructuring assigns the two split pieces to hours and minutes.
         const [hours, minutes] = time.split(":").map(Number);
         return hours * 60 + minutes;
     };
+    // Backticks create a template string; ${...} inserts a calculated value.
     const timeFromMinutes = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
     const displayTime = (time) => {
         const [hours, minutes] = time.split(":").map(Number);
@@ -67,6 +73,7 @@
     }
 
     function normalizeCourts(courts) {
+        // The condition ? first : second syntax chooses one of two values.
         return (Array.isArray(courts) ? courts : [courts]).map(String);
     }
 
@@ -80,7 +87,9 @@
 
     function cellsForSelection(courts, start, duration) {
         const startMinutes = minutesFromTime(start);
+        // flatMap() makes arrays for each court and combines them into one array.
         return normalizeCourts(courts).flatMap((court) =>
+            // Array.from() calls this function once for every 30-minute block.
             Array.from({ length: duration / 30 }, (_, index) =>
                 calendar.querySelector(`[data-slot][data-court="${court}"][data-time="${timeFromMinutes(startMinutes + index * 30)}"]`)
             )
@@ -97,6 +106,7 @@
         const cells = cellsForSelection(selectedCourts, start, duration);
         const expectedCellCount = selectedCourts.length * duration / 30;
         const valid = cells.length === expectedCellCount && cells.every((cell) => cell && cell.dataset.blocked !== "true");
+        // filter(Boolean) removes missing cells before their classes are changed.
         cells.filter(Boolean).forEach((cell) => cell.classList.add(valid ? "slot-cell--selecting" : "slot-cell--invalid"));
         return valid;
     }
@@ -138,6 +148,7 @@
             cell.setPointerCapture(event.pointerId);
             preview(drag.courts, drag.start, drag.duration);
         });
+        // ?. runs the next part only if querySelector found a button.
         cell.querySelector("button")?.addEventListener("keydown", (event) => {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -148,6 +159,7 @@
 
     document.addEventListener("pointermove", (event) => {
         if (!drag) return;
+        // closest() walks up the HTML tree to find the nearest matching element.
         const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-slot]");
         if (!cell || (!isPro && drag.anchorCourt !== cell.dataset.court)) return;
         const duration = minutesFromTime(cell.dataset.time) - minutesFromTime(drag.start) + 30;
@@ -184,6 +196,7 @@
     });
 
     ownerSearch?.addEventListener("input", () => {
+        // /\D/g is a regular expression that finds every non-digit character.
         ownerSearch.value = ownerSearch.value.replace(/\D/g, "");
         const exactMatch = ownerOptions.querySelector(`[data-value="${ownerSearch.value}"]`);
         if (exactMatch) selectOwner(exactMatch);
@@ -244,6 +257,7 @@
         const selectedCourts = normalizeCourts(courts);
         const selectedStart = minutesFromTime(start);
         const selectedEnd = selectedStart + duration;
+        // some() returns true as soon as one booking passes this test.
         return [...calendar.querySelectorAll("[data-booking]")].some((booking) => {
             if (!selectedCourts.includes(booking.dataset.court)) return false;
             const bookingStart = minutesFromTime(booking.dataset.start);

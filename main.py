@@ -1,72 +1,117 @@
-import json
 import os
 from functools import wraps
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from uuid import uuid4
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from courts import courts
-from users import members, pros
+from database import initialize_database
+from extensions import db, migrate
+from models import Booking, Court, User
 
-
-BASE_DIR = Path(__file__).resolve().parent
-BOOKINGS_FILE = BASE_DIR / "bookings.json"
-CREDENTIALS_FILE = BASE_DIR / "data" / "credentials.json"
+###############################################
+'''these here are the "time rules" variables'''
 OPEN_MINUTES = 8 * 60
 CLOSE_MINUTES = 20 * 60
 ALLOWED_DURATIONS = (30, 60, 90, 120)
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
+###############################################
+
 
 app = Flask(__name__)
+# Use the environment value if it exists, otherwise use the development value.
 app.secret_key = os.environ.get("COURT_BOOKER_SECRET", "court-booker-development-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL",
+    "sqlite:///court_booker.db",
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+migrate.init_app(app, db)
+
+with app.app_context():
+    initialize_database()
 
 
-#returns user by club number or none
-#for loop that uses next to make it shorter
+# we find the user by checking if the users club number matches to a registered club number
 def find_user_by_club_number(club_number):
-    return next(
-        (user for user in pros + members if user["club_number"] == club_number),
-        None,
+    user = db.session.get(User, club_number)
+    return user.to_dict() if user else None
+
+
+def users_by_type(user_type):
+    statement = (
+        db.select(User).where(User.user_type == user_type).order_by(User.club_number)
     )
+    return [user.to_dict() for user in db.session.scalars(statement)]
 
 
+#check if a user is a pro by comparing the int value of club number to 1000
 def is_pro(user):
+    # dict.get() reads a key and uses 1000 if that key is missing.
     return bool(user and user.get("club_number", 1000) < 1000)
 
 
 def load_bookings():
-    try:
-        with BOOKINGS_FILE.open("r", encoding="utf-8") as file:
-            bookings = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-    for index, booking in enumerate(bookings):
-        booking.setdefault("id", f"legacy-{index}")
-    return bookings
+    statement = db.select(Booking).order_by(Booking.start_datetime, Booking.court_id)
+    return [booking.to_dict() for booking in db.session.scalars(statement)]
 
 
 def save_bookings(bookings):
-    with BOOKINGS_FILE.open("w", encoding="utf-8") as file:
-        json.dump(bookings, file, indent=4)
+    desired_ids = {booking["id"] for booking in bookings}
+    for existing in db.session.scalars(db.select(Booking)):
+        if existing.id not in desired_ids:
+            db.session.delete(existing)
 
+    for booking_data in bookings:
+        booking = db.session.get(Booking, booking_data["id"])
+        if booking is None:
+            booking = Booking(id=booking_data["id"])
+            db.session.add(booking)
 
+        booking.court_id = int(booking_data["court"])
+        booking.start_datetime = booking_start(booking_data)
+        booking.duration = int(booking_data["duration"])
+        booking.owner_club_number = int(booking_data["owner_club_number"])
+        booking.guest_count = int(booking_data.get("guest_count", 0))
+        booking.created_by = int(booking_data["created_by"])
+        booking.created_by_role = booking_data["created_by_role"]
+        booking.is_override = bool(booking_data.get("override"))
+        booking.overrode_count = int(booking_data.get("overrode_count", 0))
+
+        member_numbers = [
+            int(member["club_number"])
+            for member in booking_data.get("additional_members", [])
+        ]
+        if member_numbers:
+            statement = db.select(User).where(User.club_number.in_(member_numbers))
+            booking.additional_members = list(db.session.scalars(statement))
+        else:
+            booking.additional_members = []
+
+    db.session.commit()
+
+#takes a bookings saved date and time text and converts it into a datetime object
 def booking_start(booking):
     return datetime.strptime(booking["start_datetime"], DATETIME_FORMAT)
 
-
+#bookings_overlap() checks whether two bookings use any of the same time.
+'''It works by:
+1. Finding when each booking starts.
+2. Adding its duration to calculate when it ends.
+3. Checking whether the two time periods cross.'''
 def bookings_overlap(new_booking, existing_booking):
     new_start = booking_start(new_booking)
-    new_end = new_start + timedelta(minutes=int(new_booking["duration"]))
+    new_end = new_start + timedelta(minutes=int(new_booking["duration"]))  # time delta represents and amount of time
     existing_start = booking_start(existing_booking)
     existing_end = existing_start + timedelta(minutes=int(existing_booking["duration"]))
     return new_start < existing_end and new_end > existing_start
 
-
+#conflicting_bookings() finds every existing booking that conflicts with a new booking.
 def conflicting_bookings(new_booking, bookings):
+    # This list comprehension keeps only bookings that meet both conditions.
     return [
         booking
         for booking in bookings
@@ -98,7 +143,8 @@ def requested_court_ids():
     except ValueError:
         return None
 
-    # Preserve the visible left-to-right order while discarding duplicate IDs.
+    # dict.fromkeys() removes duplicate IDs while preserving their order.
+    # "or None" changes an empty result into None.
     return list(dict.fromkeys(court_ids)) or None
 
 
@@ -122,7 +168,10 @@ def parse_booking_roster(member_number_values, guest_count_text, owner):
     if owner["club_number"] in club_numbers:
         return None, None, "The booking owner's club number is already included automatically."
 
-    member_lookup = {member["club_number"]: member for member in members}
+    # This dictionary comprehension makes club numbers quick to look up.
+    member_lookup = {
+        member["club_number"]: member for member in users_by_type("member")
+    }
     unknown_numbers = [number for number in club_numbers if number not in member_lookup]
     if unknown_numbers:
         formatted = ", ".join(str(number) for number in unknown_numbers)
@@ -142,7 +191,12 @@ def booking_owner_for_request(staff_user):
         return None, "Select a valid booking owner."
     if owner_number == staff_user["club_number"]:
         return staff_user, None
-    owner = next((member for member in members if member["club_number"] == owner_number), None)
+    owner_record = db.session.get(User, owner_number)
+    owner = (
+        owner_record.to_dict()
+        if owner_record and owner_record.user_type == "member"
+        else None
+    )
     if owner is None:
         return None, "Select a valid member as the booking owner."
     return owner, None
@@ -156,50 +210,52 @@ def current_user():
 
 
 def load_credentials():
-    try:
-        with CREDENTIALS_FILE.open("r", encoding="utf-8") as file:
-            return json.load(file)
-    except FileNotFoundError as error:
-        raise RuntimeError(
-            "Credentials are missing. Run: python scripts/generate_credentials.py"
-        ) from error
+    return {
+        user.username: {
+            "club_number": user.club_number,
+            "password_hash": user.password_hash,
+        }
+        for user in db.session.scalars(db.select(User))
+    }
 
 
 def login_required(view):
+    # This decorator builds a login check that can wrap any page function.
     @wraps(view)
     def wrapped_view(*args, **kwargs):
         if current_user() is None:
             flash("Please sign in to view the court schedule.", "error")
             return redirect(url_for("login", next=request.full_path.rstrip("?")))
+        # *args and **kwargs pass through all positional and named arguments.
         return view(*args, **kwargs)
 
     return wrapped_view
 
 
 def surface_courts(surface):
-    return [
-        {**court, "id": index}
-        for index, court in enumerate(courts)
-        if court["surface"] == surface
-    ]
+    statement = db.select(Court).where(Court.surface == surface).order_by(Court.id)
+    return [court.to_dict() for court in db.session.scalars(statement)]
 
 
 def calendar_url(surface, selected_date):
     return url_for("calendar", surface=surface, date=selected_date.isoformat())
 
 
+# This decorator makes the returned values available in every HTML template.
 @app.context_processor
 def inject_globals():
     user = current_user()
     return {
         "current_user": user,
         "current_user_is_pro": is_pro(user),
+        # This is a one-line if/else expression.
         "current_user_role_label": (
             "Front Desk" if user and user.get("club_number") == 5 else "Pro"
         ),
     }
 
 
+# Flask decorators connect the URL above a function to that function.
 @app.get("/")
 def index():
     if current_user() is None:
@@ -264,6 +320,7 @@ def calendar(surface):
         additional_members = booking.get("additional_members", [])
         guest_count = int(booking.get("guest_count", 0))
         owner_is_employee = user.get("user_type") == "employee"
+        # join() combines the generated member labels with commas between them.
         member_roster = ", ".join(
             f'{member.get("first_name", "Member")} {member.get("last_name", "")} (#{member.get("club_number", "?")})'
             for member in additional_members
@@ -275,6 +332,7 @@ def calendar(surface):
                 "start": start,
                 "start_label": start.strftime("%-I:%M %p") if os.name != "nt" else start.strftime("%I:%M %p").lstrip("0"),
                 "end_label": (start + timedelta(minutes=duration)).strftime("%I:%M %p").lstrip("0"),
+                # // divides and discards any remainder, giving a whole row count.
                 "rowspan": duration // 30,
                 "name": f'{user.get("first_name", "Unknown")} {user.get("last_name", "member")}',
                 "owner_club_number": booking.get("owner_club_number", user.get("club_number", "?")),
@@ -290,6 +348,7 @@ def calendar(surface):
             }
         )
 
+    # Tuple keys let one dictionary use both court and time as its lookup key.
     bookings_by_start = {
         (booking["court"], booking["start"].strftime("%H:%M")): booking
         for booking in day_bookings
@@ -324,7 +383,7 @@ def calendar(surface):
         bookings_by_start=bookings_by_start,
         covered=covered,
         return_url=request.full_path.rstrip("?"),
-        members=members,
+        members=users_by_type("member"),
         staff_durations=range(30, CLOSE_MINUTES - OPEN_MINUTES + 1, 30),
     )
 
@@ -344,14 +403,23 @@ def create_booking():
         flash("The selected court time is invalid.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
-    if not court_ids or any(court_id not in range(len(courts)) for court_id in court_ids):
+    selected_courts = (
+        list(
+            db.session.scalars(
+                db.select(Court).where(Court.id.in_(court_ids or []))
+            )
+        )
+        if court_ids
+        else []
+    )
+    if len(selected_courts) != len(court_ids or []):
         flash("That court does not exist.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     staff_user = current_user()
     if len(court_ids) > 1 and not is_pro(staff_user):
         flash("Only pros and Front Desk staff can book multiple courts at once.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
-    if len({courts[court_id]["surface"] for court_id in court_ids}) > 1:
+    if len({court.surface for court in selected_courts}) > 1:
         flash("Selected courts must have the same surface.", "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
     if (not is_pro(staff_user) and duration not in ALLOWED_DURATIONS) or (
@@ -375,6 +443,7 @@ def create_booking():
     if roster_error:
         flash(roster_error, "error")
         return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
+    # This creates one booking dictionary for each selected court.
     new_bookings = [
         {
             "id": str(uuid4()),
@@ -391,10 +460,12 @@ def create_booking():
         for court_id in court_ids
     ]
     bookings = load_bookings()
+    # This dictionary maps each court ID to its list of conflicting bookings.
     conflicts_by_court = {
         new_booking["court"]: conflicting_bookings(new_booking, bookings)
         for new_booking in new_bookings
     }
+    # The two for clauses flatten those smaller lists into one list.
     conflicts = [
         conflict
         for court_conflicts in conflicts_by_court.values()
@@ -442,5 +513,6 @@ def cancel_booking(booking_id):
     return redirect(url_for("calendar", surface=return_surface, date=return_date_text))
 
 
+# This is true only when main.py is run directly, not when another file imports it.
 if __name__ == "__main__":
     app.run(debug=True)
